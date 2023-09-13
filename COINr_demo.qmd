@@ -1,0 +1,147 @@
+---
+title: "COINr Demo 2023"
+author: "William Becker"
+format: html
+---
+
+This is a [Quarto notebook](https://quarto.org/) which combines text, code, and code outputs into one document. This notebook was created to demonstrate a few features of the COINr package, for the COIN week training 2023. It is not meant to thoroughly describe each step, but simply gives a record of some of the commands used in the demo.
+
+## Introduction
+
+COINr is an R package for building and analysing composite indicators. Before going any further, here are some useful resources:
+
+- [COINr documentation website](https://bluefoxr.github.io/COINr/)
+- COINr [GitHub repo](https://github.com/bluefoxr/COINr/) (where you can submit issues or suggestions)
+
+COINr allows you to build and analyse composite indicators, but the starting point is an (initial) data set of indicators, and indicator metadata, including the structure (conceptual framework) of the index.
+
+For the purposes of this demo, we will build a composite indicator from scratch. The idea is to demonstrate also the principles of building a reproducible data pipeline, which is important for reproducibility, quality control and transparency. It also saves a lot of time for any future adjustments and updates! 
+
+Let us imagine a generic "Nice Country Index" (NCI). The idea will be to build a composite indicator that provides a summary measure of how "nice" a country is to live in. With the following very large provisos:
+
+1. We only cover Europe
+2. We only use Eurostat data
+3. We select the indicators very much on a whim
+4. We follow basic methodology
+
+In other words, this is all just for a demo, not a serious index! With that said, let's get started.
+
+## Data collection
+
+One way of collecting data is to download it from Eurostat in e.g. Excel or CSV. Then if we are building the CI in R, we would have to import it into R etc.
+
+A better way in many cases is to download the data directly into R via an "API". R has many packages which provide easy interfaces to specific APIs - in our case, the "eurostat" package can be used to download Eurostat data directly into R. We will now use this to download our selected indicators.
+
+```{r}
+library(eurostat)
+# clean cache if necessary
+eurostat::clean_eurostat_cache()
+
+# get data (missing: PISA, Low waged workers, qualification mismatch)
+l_data <- list(
+  PTRatio = get_eurostat("educ_uoe_perp04", time_format = "num", filters = list(isced11 = "ED0")),
+  SecEd = get_eurostat("edat_lfse_03", time_format = "num", filters = list(sex = "T", age = "Y15-64", isced11 = "ED3-8")),
+  RecTrain = get_eurostat("trng_lfse_01", time_format = "num", filters = list(sex = "T", age = "Y25-74")),
+  VET = get_eurostat("educ_uoe_enra13", time_format = "num", filters = list(isced11 = "ED34")), # ED34 is "Upper secondary ed, general (check)
+  DigiSkill = get_eurostat("isoc_sk_dskl_i", time_format = "num", filters = list(indic_is= "I_DSK_AB", unit = "PC_IND", ind_type = "IND_TOTAL")), # to check indic_is if correct
+  LeaveTrain =  get_eurostat("edat_lfse_14", time_format = "num", filters = list(sex = "T", wstatus = "NEMP")), # not in employment
+  EmpGrads = get_eurostat("edat_lfse_24", time_format = "num", filters = list(duration = "Y1-3", age = "Y20-34", isced11 = "TOTAL", sex = "T")),
+  Emp25_54 = get_eurostat("lfsa_argaed", time_format = "num", filters = list(age = "Y25-54", isced11 = "TOTAL", sex = "T"), cache = FALSE, update_cache = FALSE),
+  Emp20_24 = get_eurostat("lfsa_argaed", time_format = "num", filters = list(age = "Y20-24", isced11 = "TOTAL", sex = "T"), cache = FALSE, update_cache = FALSE),
+  LTUnemp = get_eurostat("une_ltu_a", time_format = "num", filters = list(age = "Y15-74", indic_em = "LTU", sex = "T", unit = "PC_ACT")),
+  UnderEmpPT = get_eurostat("lfsa_sup_age", time_format = "num", filters = list(wstatus = "UEMP_PT", age = "Y15-74", sex = "T", unit = "PC_EMP"), cache = FALSE, update_cache = FALSE),
+  OverQual = get_eurostat("lfsa_eoqgan", time_format = "num", filters = list(age = "Y25-34", sex = "T", citizen = "TOTAL")) # TO CHECK
+)
+```
+
+At this point we have all the data, but it needs tidying up: our data covers multiple years, has different columns and may not always include the same set of countries. Begin by converting the list into one big table with common columns:
+
+```{r}
+# select relevant columns from each data set
+l_data_filt <- lapply(names(l_data), function(iCode){
+  X <- l_data[[iCode]]
+  X <- X[c("geo", "time", "values")]
+  X$iCode <- iCode
+  X
+})
+
+# convert to table
+df_data <- Reduce(rbind, l_data_filt)
+
+# rename columns
+names(df_data) <- c("uCode", "Time", "Value", "iCode")
+```
+
+Now we filter to EU27 countries:
+
+```{r}
+# get EU27 country codes (use countrycode package, manually exclude UK)
+countries <- countrycode::codelist[
+  which((countrycode::codelist$eu28 == "EU") & (countrycode::codelist$eurostat != "UK")),
+  c("country.name.en", "eurostat")
+]
+names(countries) <- c("uName", "uCode")
+
+df_data <- df_data[df_data$uCode %in% countries$uCode, ]
+```
+
+At this point we have all of our data in a single long table. We have multiple years of data, so we want to know which years we have data for all indicators:
+
+```{r}
+table(df_data[c("iCode", "Time")])
+```
+
+This shows the counts of years against indicators, and shows that the latest year with all 27 countries having data for all indicators is 2019. So we use that in our example.
+
+To note that COINr can deal with panel data easily, but for simplicity we will stick with a single year of data, so let's filter to that.
+
+```{r}
+df_data <- df_data[df_data$Time == 2019, ]
+```
+
+Now we have a clean and focused data set. What remains is to format it for entry into COINr.
+
+## COINr input
+
+To enter the data into COINr we need to build two tables:
+
+1. The indicator data (iData)
+2. The indicator metadata, including the index structure (iMeta)
+
+### iData
+
+This is fairly straightforward: we just pivot the table previously downloaded:
+
+```{r}
+# pivot to wide
+iData <- tidyr::pivot_wider(df_data, names_from = "iCode", values_from = "Value")
+
+# remove time column
+iData <- iData[names(iData) != "Time"]
+
+# also add country names
+iData <- merge(countries, iData)
+```
+
+Now our data set looks like this and is ready for entry into COINr:
+
+```{r}
+head(iData, 5)
+```
+
+### iMeta
+
+The other table requires some manual construction. We have to define indicator codes, names, directions, and the index structure. To be quick, we will just make the indicator names the same as codes for the moment. The following is the basic structure of the table:
+
+```{r}
+iMeta <- data.frame(
+  iCode = unique(df_data$iCode),
+  iName = unique(df_data$iCode),
+  Direction = 1,
+  Level = 1,
+  Weight = 1,
+  Type = "Indicator"
+)
+```
+
+Next we have to 
