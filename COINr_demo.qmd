@@ -1,7 +1,11 @@
 ---
 title: "COINr Demo 2023"
+subtitle: "Plus some extras thrown in"
 author: "William Becker"
-format: html
+format: 
+  html:
+    toc: true
+    toc-location: left
 ---
 
 This is a [Quarto notebook](https://quarto.org/) which combines text, code, and code outputs into one document. This notebook was created to demonstrate a few features of the COINr package, for the COIN week training 2023. It is not meant to thoroughly describe each step, but simply gives a record of some of the commands used in the demo.
@@ -101,7 +105,7 @@ df_data <- df_data[df_data$Time == 2019, ]
 
 Now we have a clean and focused data set. What remains is to format it for entry into COINr.
 
-## COINr input
+## Formatting for COINr
 
 To enter the data into COINr we need to build two tables:
 
@@ -131,7 +135,9 @@ head(iData, 5)
 
 ### iMeta
 
-The other table requires some manual construction. We have to define indicator codes, names, directions, and the index structure. To be quick, we will just make the indicator names the same as codes for the moment. The following is the basic structure of the table:
+The other table requires some manual construction. We have to define indicator codes, names, directions, and the index structure. The structure of the iMeta table is a bit more complicated than the iData table, but it is explained thoroughly in the [COINr documentation](https://bluefoxr.github.io/COINr/articles/coins.html#indicator-metadata).
+
+To be quick, we will just make the indicator names the same as codes for the moment. The following is the basic structure of the table which we will add to and edit:
 
 ```{r}
 iMeta <- data.frame(
@@ -144,4 +150,254 @@ iMeta <- data.frame(
 )
 ```
 
-Next we have to 
+Next we will edit the directions: some of our indicators have a negative directionality (associated with lower values of skills).
+
+```{r}
+# indicators with negative directionality
+neg_directions <- c("PTRatio" , "LeaveTrain", "LTUnemp", "UnderEmpPT", "OverQual")
+
+# update iMeta
+iMeta$Direction[iMeta$iCode %in% neg_directions] <- -1
+```
+
+Next we have to define the structure of the index. This is done by first assigning each indicator to its aggregation group using the "Parent" column, then adding additional rows to define the aggregates themselves (the pillars, etc, up to the index).
+
+Defining the iMeta table may often be easier in Excel or similar, but here will do everything in R. First we assign the indicators to their groups in Level 2:
+
+```{r}
+# assign level 2 groupings
+iMeta$Parent <- c("BasicEd", "BasicEd",
+                  "TrainEd", "TrainEd", "TrainEd",
+                  "TransWork", "TransWork",
+                  "ActRate", "ActRate",
+                  "SkillUtil", "SkillUtil",
+                  "SkillMisMa")
+```
+
+Now we must define level 2 itself:
+
+```{r}
+iMeta_L2 <- data.frame(
+  iCode = c("BasicEd", "TrainEd", "TransWork", "ActRate", "SkillUtil", "SkillMisMa"),
+  iName = c("Basic Education", "Training and other education", "Transition to work",
+            "Labour Market Participation", "Skills utilisation", "Skills mismatch"),
+  Direction = 1,
+  Level = 2,
+  Weight = 1,
+  Type = "Aggregate",
+  Parent = c("SkillDev", "SkillDev", "SkillAct", "SkillAct", "SkillMatch", "SkillMatch")
+)
+
+# add to iMeta
+iMeta <- rbind(iMeta, iMeta_L2)
+```
+
+Now define the final rows (level 3 and the index level 4):
+
+```{r}
+iMeta_L34 <- data.frame(
+  iCode = c("SkillDev", "SkillAct", "SkillMatch", "ESI"),
+  iName = c("Skills development", "Skills activation", "Skills matching", "European Skills Index"),
+  Direction = 1,
+  Level = c(3,3,3,4),
+  Weight = 1,
+  Type = "Aggregate",
+  Parent = c("ESI", "ESI", "ESI", NA)
+)
+
+# add to iMeta
+iMeta <- rbind(iMeta, iMeta_L34)
+```
+
+The iMeta table is now complete. Let's see what it looks like:
+
+```{r}
+iMeta
+```
+
+## Initial analysis
+
+We are now ready to actually use COINr. To use COINr we have to begin by building a "coin", which is an object which contains all information about our composite indicator (data, structure, results, etc).
+
+```{r}
+library(COINr)
+
+ESI <- new_coin(iData, iMeta)
+```
+
+We can check the contents of our coin at a glance:
+
+```{r}
+ESI
+```
+
+We can also plot the index structure:
+
+```{r}
+plot_framework(ESI)
+```
+
+If we are working in HTML we can also use the iCOINr package for an interactive version:
+
+```{r}
+library(iCOINr)
+iplot_framework(ESI)
+```
+
+Another useful initial operation is to check indicator statistics:
+
+```{r}
+get_stats(ESI, dset = "Raw")
+```
+
+This can help us to flag initial problems. We may also wish to check correlations:
+
+```{r}
+plot_corr(ESI, dset = "Raw", grouplev = 3, box_level = 2, use_directions = TRUE)
+```
+
+We can also plot the distributions of any indicators, including all indicators at once:
+
+```{r}
+plot_dist(ESI, dset = "Raw", iCodes = "ESI", Level = 1)
+```
+
+## Building the index
+
+We will not follow the real ESI methodology here, but go for some very simple options in building the composite indicator.
+
+First we will apply data treatment using a standard Winsorisation approach:
+
+```{r}
+ESI <- qTreat(ESI, dset = "Raw", winmax = 5)
+```
+
+Let us see what data treatment has been applied:
+
+```{r}
+ESI$Analysis$Treated$Dets_Table |>
+  signif_df()
+```
+
+This table shows that only one data point was Winsorised.
+
+Next we can normalise the data:
+
+```{r}
+ESI <- qNormalise(ESI, dset = "Treated")
+```
+
+By default this uses the min-max method on the 0-100 interval. Finally we aggregate the index using the good old arithmetic mean.
+
+```{r}
+ESI <- Aggregate(ESI, dset = "Normalised", f_ag = "a_amean")
+```
+
+We have now calculated our results, but they are still inside the coin. To view them easily we can call a helper function:
+
+```{r}
+get_results(ESI, dset = "Aggregated", tab_type = "Full")
+```
+
+## Visualising results
+
+There are many options for visualising the results. We begin with a bar chart:
+
+```{r}
+plot_bar(ESI, dset = "Aggregated", iCode = "ESI", stack_children = TRUE)
+```
+
+This can also be viewed using the iCOINr package:
+
+```{r}
+iplot_bar(ESI, dset = "Aggregated", "ESI", orientation = "vertical", ulabs = "uName", stack_children = TRUE, ilabs = "iName")
+```
+
+
+We may also wish to make a scatter plot, again this can be done in static or interactive mode:
+
+```{r}
+iplot_scatter(ESI, dsets = c("Raw", "Aggregated"), iCodes = c("PTRatio", "ESI"), Levels = c(1, 4), axes_label = "iName", trendline = TRUE)
+```
+
+
+Next we will plot our results on a map. This is outside of COINr but useful to know.
+
+```{r}
+# first, acquire country shape files from Eurostat
+SHP_0 <- get_eurostat_geospatial(resolution = 10, nuts_level = 0, year = 2021)
+
+# extract data from coin and join to the shape df
+df_ESI <- get_data(ESI, dset = "Aggregated", iCodes = "ESI")
+# merge data into shape df
+SHP_0 <- base::merge(SHP_0, df_ESI, by.x = "CNTR_CODE", by.y = "uCode")
+
+library(leaflet)
+
+# Create a color palette for the map:
+mypalette <- colorNumeric(palette = "Blues", domain = SHP_0$ESI, na.color = "transparent")
+
+# now plot
+leaflet(SHP_0) |>
+  leaflet::addProviderTiles("CartoDB.Positron") |>
+  leaflet::addPolygons(layerId = ~CNTR_CODE,
+                       fillColor = ~mypalette(ESI),
+                       weight = 2,
+                       opacity = 1,
+                       color = "white",
+                       dashArray = "3",
+                       fillOpacity = 0.7,
+                       highlightOptions = leaflet::highlightOptions(
+                         weight = 5,
+                         color = "#666",
+                         dashArray = "",
+                         fillOpacity = 0.7,
+                         bringToFront = TRUE)) |>
+  leaflet::addLegend(pal = mypalette, values = ~ESI, opacity = 0.7, title = NULL,
+                       position = "bottomright")
+```
+
+
+This map can be further customised and improved, but we won't go any further here.
+
+## Post-processing
+
+Next we will run through a few post-processing/adjustment tasks.
+
+### Adjustments
+
+Coins can easily be copied, modified and compared. To find out more about this, see the [online documenation](https://bluefoxr.github.io/COINr/articles/adjustments.html). Here, we will check what would happen if instead of using min-max normalisation we were to use percentile ranks.
+
+```{r}
+# copy index
+ESI_pr <- ESI
+
+# modify - set normalisation method
+ESI_pr$Log$qNormalise$f_n <- "n_prank"
+ESI_pr$Log$qNormalise$f_n_para <- list(NULL)
+
+# regen
+ESI_pr <- Regen(ESI_pr)
+
+# compare
+compare_coins(ESI, ESI_pr, dset = "Aggregated", iCode = "ESI", also_get = "uName", sort_by = "coin.1")
+```
+
+We can see that there are differences: with the rank approach Estonia is the top performer.
+
+## Conclusions
+
+This was a brief tour of some of the features of COIN. However, COINr can do many other things which we have not explored here:
+
+- Global sensitivity analysis
+- Effect of removing indicators
+- PCA
+- Imputation of missing data
+- Time series analysis (handling and analysing panel data)
+- Denomination
+- Screening units based on missing data
+- Reweighting
+
+... and many other things. 
+
+Overall we have demonstrated here how a composite indicator can be built from start to finish (excluding qualitative tasks like conceptual development, etc) in a fully reproducible way.
