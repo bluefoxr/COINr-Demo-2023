@@ -22,7 +22,7 @@ COINr allows you to build and analyse composite indicators, but the starting poi
 
 For the purposes of this demo, we will build a composite indicator from scratch. The idea is to demonstrate also the principles of building a reproducible data pipeline, which is important for reproducibility, quality control and transparency. It also saves a lot of time for any future adjustments and updates! 
 
-Rather than dreaming up a new composite indicator, we will recreate the [European Skills Index](https://www.cedefop.europa.eu/en/tools/european-skills-index), which is a composite indicator with 15 indicators measuring skills in European countries. Actually, we will miss out
+Rather than dreaming up a new composite indicator, we will recreate the [European Skills Index](https://www.cedefop.europa.eu/en/tools/european-skills-index), which is a composite indicator with 15 indicators measuring skills in European countries. Actually, we will miss out three of these indicators for reasons explained below, so this is only a partial recreation of the index.
 
 ## Data collection
 
@@ -62,6 +62,8 @@ saveRDS(l_data, "raw_data.RDS")
 ```
 
 Notice that we reference Eurostat indicator codes (these can be found on the Eurostat website), and for each indicator we only download the relevant data using the filter options.
+
+This list of indicators misses three indicators to properly recreate the ESI: namely PISA scores, low-waged workers and qualification mismatch. These three indicators are not directly downloadable from Eurostat. In practice, the raw data would be saved in three separate files (e.g. csv, Excel or similar), then a separate script would be written for each indicator, to clean and process it. It would then be gathered together with the other indicators here, the idea being to have a reproducible record of how we arrived at the final result, from the raw data. However, to keep things simple here we will simply omit these indicators in this example.
 
 As mentioned, to avoid repeatedly downloading the same data, we will load a locally-saved version of the data:
 
@@ -377,6 +379,8 @@ leaflet(SHP_0) |>
 
 
 This map can be further customised and improved, but we won't go any further here.
+
+*Recall that these results are not the same as the real ESI results because (a) we have omitted three indicators, and (b) we have followed a simplified methodology to keep this example simple.*
 
 ## Post-processing
 
