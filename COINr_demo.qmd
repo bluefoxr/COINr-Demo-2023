@@ -2,6 +2,7 @@
 title: "COINr Demo 2023"
 subtitle: "Plus some extras thrown in"
 author: "William Becker"
+output-dir: docs
 format: 
   html:
     toc: true
@@ -29,7 +30,13 @@ One way of collecting data is to download it from Eurostat in e.g. Excel or CSV.
 
 A better way in many cases is to download the data directly into R via an "API". R has many packages which provide easy interfaces to specific APIs - in our case, the "eurostat" package can be used to download Eurostat data directly into R. We will now use this to download our selected indicators.
 
+Note that since this takes a minute or so, depending on the download speed, we will also save the raw data so that each time this document is generated, we don't have to download again. This is effectively caching the data, but of course we always have the option to re-download the data if we suspect that indicators have been updated.
+
+The following is how the data is downloaded. This code chunk will not be run except for (a) the first time we acquire the data, or (b) if we want to check for updates:
+
 ```{r}
+#| eval: false
+
 library(eurostat)
 # clean cache if necessary
 eurostat::clean_eurostat_cache()
@@ -49,6 +56,17 @@ l_data <- list(
   UnderEmpPT = get_eurostat("lfsa_sup_age", time_format = "num", filters = list(wstatus = "UEMP_PT", age = "Y15-74", sex = "T", unit = "PC_EMP"), cache = FALSE, update_cache = FALSE),
   OverQual = get_eurostat("lfsa_eoqgan", time_format = "num", filters = list(age = "Y25-34", sex = "T", citizen = "TOTAL")) # TO CHECK
 )
+
+# save
+saveRDS(l_data, "raw_data.RDS")
+```
+
+Notice that we reference Eurostat indicator codes (these can be found on the Eurostat website), and for each indicator we only download the relevant data using the filter options.
+
+As mentioned, to avoid repeatedly downloading the same data, we will load a locally-saved version of the data:
+
+```{r}
+l_data <- readRDS("raw_data.RDS")
 ```
 
 At this point we have all the data, but it needs tidying up: our data covers multiple years, has different columns and may not always include the same set of countries. Begin by converting the list into one big table with common columns:
@@ -85,7 +103,9 @@ df_data <- df_data[df_data$uCode %in% countries$uCode, ]
 At this point we have all of our data in a single long table. We have multiple years of data, so we want to know which years we have data for all indicators:
 
 ```{r}
-table(df_data[c("iCode", "Time")])
+table(df_data[c("iCode", "Time")]) |>
+  as.data.frame.matrix() |>
+  DT::datatable(options = list(pageLength = 12))
 ```
 
 This shows the counts of years against indicators, and shows that the latest year with all 27 countries having data for all indicators is 2019. So we use that in our example.
@@ -94,6 +114,8 @@ To note that COINr can deal with panel data easily, but for simplicity we will s
 
 ```{r}
 df_data <- df_data[df_data$Time == 2019, ]
+# see first few rows
+head(df_data)
 ```
 
 Now we have a clean and focused data set. What remains is to format it for entry into COINr.
@@ -123,7 +145,7 @@ iData <- merge(countries, iData)
 Now our data set looks like this and is ready for entry into COINr:
 
 ```{r}
-head(iData, 5)
+DT::datatable(iData, rownames = F)
 ```
 
 ### iMeta
@@ -205,7 +227,7 @@ iMeta <- rbind(iMeta, iMeta_L34)
 The iMeta table is now complete. Let's see what it looks like:
 
 ```{r}
-iMeta
+DT::datatable(iMeta, rownames = F)
 ```
 
 ## Initial analysis
@@ -240,7 +262,8 @@ iplot_framework(ESI)
 Another useful initial operation is to check indicator statistics:
 
 ```{r}
-get_stats(ESI, dset = "Raw")
+get_stats(ESI, dset = "Raw") |>
+  DT::datatable(rownames = F)
 ```
 
 This can help us to flag initial problems. We may also wish to check correlations:
@@ -269,7 +292,8 @@ Let us see what data treatment has been applied:
 
 ```{r}
 ESI$Analysis$Treated$Dets_Table |>
-  signif_df()
+  signif_df() |>
+  DT::datatable(rownames = F)
 ```
 
 This table shows that only one data point was Winsorised.
@@ -289,7 +313,8 @@ ESI <- Aggregate(ESI, dset = "Normalised", f_ag = "a_amean")
 We have now calculated our results, but they are still inside the coin. To view them easily we can call a helper function:
 
 ```{r}
-get_results(ESI, dset = "Aggregated", tab_type = "Full")
+get_results(ESI, dset = "Aggregated", tab_type = "Full") |>
+  DT::datatable(rownames = F)
 ```
 
 ## Visualising results
@@ -318,7 +343,7 @@ Next we will plot our results on a map. This is outside of COINr but useful to k
 
 ```{r}
 # first, acquire country shape files from Eurostat
-SHP_0 <- get_eurostat_geospatial(resolution = 10, nuts_level = 0, year = 2021)
+SHP_0 <- eurostat::get_eurostat_geospatial(resolution = 10, nuts_level = 0, year = 2021)
 
 # extract data from coin and join to the shape df
 df_ESI <- get_data(ESI, dset = "Aggregated", iCodes = "ESI")
@@ -373,7 +398,8 @@ ESI_pr$Log$qNormalise$f_n_para <- list(NULL)
 ESI_pr <- Regen(ESI_pr)
 
 # compare
-compare_coins(ESI, ESI_pr, dset = "Aggregated", iCode = "ESI", also_get = "uName", sort_by = "coin.1")
+compare_coins(ESI, ESI_pr, dset = "Aggregated", iCode = "ESI", also_get = "uName", sort_by = "coin.1") |>
+  kableExtra::kable()
 ```
 
 We can see that there are differences: with the rank approach Estonia is the top performer.
