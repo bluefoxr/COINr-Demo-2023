@@ -21,14 +21,7 @@ COINr allows you to build and analyse composite indicators, but the starting poi
 
 For the purposes of this demo, we will build a composite indicator from scratch. The idea is to demonstrate also the principles of building a reproducible data pipeline, which is important for reproducibility, quality control and transparency. It also saves a lot of time for any future adjustments and updates! 
 
-Let us imagine a generic "Nice Country Index" (NCI). The idea will be to build a composite indicator that provides a summary measure of how "nice" a country is to live in. With the following very large provisos:
-
-1. We only cover Europe
-2. We only use Eurostat data
-3. We select the indicators very much on a whim
-4. We follow basic methodology
-
-In other words, this is all just for a demo, not a serious index! With that said, let's get started.
+Rather than dreaming up a new composite indicator, we will recreate the [European Skills Index](https://www.cedefop.europa.eu/en/tools/european-skills-index), which is a composite indicator with 15 indicators measuring skills in European countries. Actually, we will miss out
 
 ## Data collection
 
