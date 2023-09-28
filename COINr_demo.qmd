@@ -465,6 +465,21 @@ compare_coins(ESI, ESI_pr, dset = "Aggregated", iCode = "ESI", also_get = "uName
 
 We can see that there are differences: with the rank approach Estonia is the top performer.
 
+## Export
+
+Most likely we will want to pass our results back outside R. COINr has a quick way to export the full coin contents to Excel.
+
+```{r}
+#| eval: false
+
+# attach results table to coin first
+ESI <- get_results(ESI, dset = "Aggregated", tab_type = "Full", dset_indicators = "Raw", out2 = "coin")
+
+# export
+export_to_excel(ESI, "ESI_results.xlsx")
+```
+
+
 ## Conclusions
 
 This was a brief tour of some of the features of COIN. However, COINr can do many other things which we have not explored here:
