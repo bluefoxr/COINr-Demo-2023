@@ -15,20 +15,22 @@ This is a [Quarto notebook](https://quarto.org/) which combines text, code, and 
 
 COINr is an R package for building and analysing composite indicators. Before going any further, here are some useful resources:
 
-- [COINr documentation website](https://bluefoxr.github.io/COINr/)
-- COINr [GitHub repo](https://github.com/bluefoxr/COINr/) (where you can submit issues or suggestions)
+-   [COINr documentation website](https://bluefoxr.github.io/COINr/) (which also explains how to install COINr)
+-   COINr [GitHub repo](https://github.com/bluefoxr/COINr/) (where you can submit issues or suggestions)
 
 COINr allows you to build and analyse composite indicators, but the starting point is an (initial) data set of indicators, and indicator metadata, including the structure (conceptual framework) of the index.
 
-For the purposes of this demo, we will build a composite indicator from scratch. The idea is to demonstrate also the principles of building a reproducible data pipeline, which is important for reproducibility, quality control and transparency. It also saves a lot of time for any future adjustments and updates! 
+For the purposes of this demo, we will build a composite indicator from scratch. The idea is to demonstrate also the principles of building a reproducible data pipeline, which is important for reproducibility, quality control and transparency. It also saves a lot of time for any future adjustments and updates!
 
 Rather than dreaming up a new composite indicator, we will recreate the [European Skills Index](https://www.cedefop.europa.eu/en/tools/european-skills-index), which is a composite indicator with 15 indicators measuring skills in European countries. Actually, we will miss out three of these indicators for reasons explained below, so this is only a partial recreation of the index.
 
+![European Skills Index framework (credit: CEDEFOP)](ESI_framework.png){width="100%"}
+
 ## Data collection
 
-One way of collecting data is to download it from Eurostat in e.g. Excel or CSV. Then if we are building the CI in R, we would have to import it into R etc.
+One way of collecting data is to download it from [Eurostat](https://ec.europa.eu/eurostat/data/database) in e.g. Excel or CSV, then merge together the different indicators. Then if we are building the CI in R, we would have to import it into R. etc. This approach will work but is slow if you need to update, and it is very easy to make mistakes. Also there is no record of exactly where you went to get your data.
 
-A better way in many cases is to download the data directly into R via an "API". R has many packages which provide easy interfaces to specific APIs - in our case, the "eurostat" package can be used to download Eurostat data directly into R. We will now use this to download our selected indicators.
+A better way in many cases is to download the data directly into R via an "API". R has many packages which provide easy interfaces to specific APIs - in our case, the [eurostat package](https://ropengov.github.io/eurostat/articles/eurostat_tutorial.html) can be used to download Eurostat data directly into R. We will now use this to download our selected indicators.
 
 Note that since this takes a minute or so, depending on the download speed, we will also save the raw data so that each time this document is generated, we don't have to download again. This is effectively caching the data, but of course we always have the option to re-download the data if we suspect that indicators have been updated.
 
@@ -64,6 +66,8 @@ saveRDS(l_data, "raw_data.RDS")
 Notice that we reference Eurostat indicator codes (these can be found on the Eurostat website), and for each indicator we only download the relevant data using the filter options.
 
 This list of indicators misses three indicators to properly recreate the ESI: namely PISA scores, low-waged workers and qualification mismatch. These three indicators are not directly downloadable from Eurostat. In practice, the raw data would be saved in three separate files (e.g. csv, Excel or similar), then a separate script would be written for each indicator, to clean and process it. It would then be gathered together with the other indicators here, the idea being to have a reproducible record of how we arrived at the final result, from the raw data. However, to keep things simple here we will simply omit these indicators in this example.
+
+![Example data pipeline](data_pipeline.png){width="100%"}
 
 As mentioned, to avoid repeatedly downloading the same data, we will load a locally-saved version of the data:
 
@@ -126,12 +130,16 @@ Now we have a clean and focused data set. What remains is to format it for entry
 
 To enter the data into COINr we need to build two tables:
 
-1. The indicator data (iData)
-2. The indicator metadata, including the index structure (iMeta)
+1.  The indicator data (iData)
+2.  The indicator metadata, including the index structure (iMeta)
+
+These tables, the details of their construction and much other information, can be found in the [COINr online documentation](https://bluefoxr.github.io/COINr/articles/coins.html). When the tables are constructed, we will use COINr to build the composite indicator.
 
 ### iData
 
-This is fairly straightforward: we just pivot the table previously downloaded:
+The first data frame, `iData` specifies the value of each indicator, for each unit. It can also contain further attributes and metadata of units, for example groups, names, and denominating variables (variables which are used to adjust for size effects of indicators).
+
+In our example this is fairly straightforward: we just pivot the table previously downloaded:
 
 ```{r}
 # pivot to wide
@@ -152,7 +160,9 @@ DT::datatable(iData, rownames = F)
 
 ### iMeta
 
-The other table requires some manual construction. We have to define indicator codes, names, directions, and the index structure. The structure of the iMeta table is a bit more complicated than the iData table, but it is explained thoroughly in the [COINr documentation](https://bluefoxr.github.io/COINr/articles/coins.html#indicator-metadata).
+The `iMeta` data frame specifies everything about each column in `iData`, including whether it is an indicator, a group, or something else; its name, its units, and where it appears in the structure of the index. iMeta also requires entries for any aggregates which will be created by aggregating indicators.
+
+This table requires some manual construction. We have to define indicator codes, names, directions, and the index structure. The structure of the `iMeta` table is a bit more complicated than the iData table, but it is explained thoroughly in the [COINr documentation](https://bluefoxr.github.io/COINr/articles/coins.html#indicator-metadata).
 
 To be quick, we will just make the indicator names the same as codes for the moment. The following is the basic structure of the table which we will add to and edit:
 
@@ -232,6 +242,13 @@ The iMeta table is now complete. Let's see what it looks like:
 DT::datatable(iMeta, rownames = F)
 ```
 
+For the purposes of this example, we will also export both the indicator data and metadata to Excel to have a look at it.
+
+```{r}
+#| eval: false
+openxlsx::write.xlsx(list(iData = iData, iMeta = iMeta), "ESI_COINr_input.xlsx")
+```
+
 ## Initial analysis
 
 We are now ready to actually use COINr. To use COINr we have to begin by building a "coin", which is an object which contains all information about our composite indicator (data, structure, results, etc).
@@ -280,6 +297,9 @@ We can also plot the distributions of any indicators, including all indicators a
 plot_dist(ESI, dset = "Raw", iCodes = "ESI", Level = 1)
 ```
 
+Further information on these steps can be found in the [Statistical Analysis](https://bluefoxr.github.io/COINr/articles/analysis.html) section of the online documentation.
+
+
 ## Building the index
 
 We will not follow the real ESI methodology here, but go for some very simple options in building the composite indicator.
@@ -298,7 +318,14 @@ ESI$Analysis$Treated$Dets_Table |>
   DT::datatable(rownames = F)
 ```
 
-This table shows that only one data point was Winsorised.
+This table shows that only one data point was Winsorised, in the "LTUnemp" indicator. We may wish to visualise the difference between the treated and untreated indicator:
+
+```{r}
+iCOINr::iplot_scatter(ESI, dsets = c("Raw", "Treated"), iCodes = "LTUnemp", Levels = 1)
+```
+
+
+In COINr there are many options for data treatment, including changing the number of Winsorised points, the type of nonlinear transformation, and even building your own outlier treatment procedure using other packages. Details on data treatment are in the [online documentation](https://bluefoxr.github.io/COINr/articles/treat.html).
 
 Next we can normalise the data:
 
@@ -306,11 +333,41 @@ Next we can normalise the data:
 ESI <- qNormalise(ESI, dset = "Treated")
 ```
 
-By default this uses the min-max method on the 0-100 interval. Finally we aggregate the index using the good old arithmetic mean.
+By default this uses the min-max method on the 0-100 interval. To confirm this we can plot the normalised data set as histograms:
+
+```{r}
+plot_dist(ESI, dset = "Normalised", iCodes = "ESI", Level = 1, type = "Dot")
+```
+
+In COINr there are many alternative normalisation options, including:
+
+- Z-scores
+- Ranks
+- Percentile ranks
+- Borda scores
+- Distance to target
+- Distance to a reference unit
+- Goalposts
+- Using a custom normalisation method
+
+Again, please see the [documentation](https://bluefoxr.github.io/COINr/articles/normalise.html) for full details.
+
+Finally we aggregate the index using the good old arithmetic mean.
 
 ```{r}
 ESI <- Aggregate(ESI, dset = "Normalised", f_ag = "a_amean")
 ```
+
+The aggregation function will use the weights that were entered in the `iMeta` table at the beginning. You can however create new weight sets and store them in the coin, and also reweight using PCA or optimisation approaches. More on this is found in the [relevant documentation chapter](https://bluefoxr.github.io/COINr/articles/weights.html)
+
+[Aggregation alternatives](https://bluefoxr.github.io/COINr/articles/aggregate.html) built into COINr are:
+
+- Geometric mean (low compensation)
+- Harmonic mean (even lower compensation)
+- The Copeland method
+- Use your own custom function
+
+For the latter, this lets us use advanced aggregation methods such as DEA and others - some interesting approaches are available in the compind package - an example of using this with COINr is [here](https://bluefoxr.github.io/COINr/articles/aggregate.html#external-functions).
 
 We have now calculated our results, but they are still inside the coin. To view them easily we can call a helper function:
 
@@ -333,17 +390,18 @@ This can also be viewed using the iCOINr package:
 iplot_bar(ESI, dset = "Aggregated", "ESI", orientation = "vertical", ulabs = "uName", stack_children = TRUE, ilabs = "iName")
 ```
 
-
 We may also wish to make a scatter plot, again this can be done in static or interactive mode:
 
 ```{r}
 iplot_scatter(ESI, dsets = c("Raw", "Aggregated"), iCodes = c("PTRatio", "ESI"), Levels = c(1, 4), axes_label = "iName", trendline = TRUE)
 ```
 
-
 Next we will plot our results on a map. This is outside of COINr but useful to know.
 
 ```{r}
+#| message: false
+#| warning: false
+
 # first, acquire country shape files from Eurostat
 SHP_0 <- eurostat::get_eurostat_geospatial(resolution = 10, nuts_level = 0, year = 2021)
 
@@ -377,7 +435,6 @@ leaflet(SHP_0) |>
                        position = "bottomright")
 ```
 
-
 This map can be further customised and improved, but we won't go any further here.
 
 *Recall that these results are not the same as the real ESI results because (a) we have omitted three indicators, and (b) we have followed a simplified methodology to keep this example simple.*
@@ -403,7 +460,7 @@ ESI_pr <- Regen(ESI_pr)
 
 # compare
 compare_coins(ESI, ESI_pr, dset = "Aggregated", iCode = "ESI", also_get = "uName", sort_by = "coin.1") |>
-  kableExtra::kable()
+  DT::datatable(rownames = FALSE)
 ```
 
 We can see that there are differences: with the rank approach Estonia is the top performer.
@@ -412,15 +469,15 @@ We can see that there are differences: with the rank approach Estonia is the top
 
 This was a brief tour of some of the features of COIN. However, COINr can do many other things which we have not explored here:
 
-- Global sensitivity analysis
-- Effect of removing indicators
-- PCA
-- Imputation of missing data
-- Time series analysis (handling and analysing panel data)
-- Denomination
-- Screening units based on missing data
-- Reweighting
+-   [Global sensitivity analysis](https://bluefoxr.github.io/COINr/articles/sensitivity.html)
+-   [Effect of removing indicators](https://bluefoxr.github.io/COINr/articles/sensitivity.html#removing-elements)
+-   [Principal component analysis](https://bluefoxr.github.io/COINr/articles/analysis.html#multivariate-tools)
+-   [Imputation of missing data](https://bluefoxr.github.io/COINr/articles/imputation.html)
+-   [Time series analysis](https://bluefoxr.github.io/COINr/articles/coins.html#purses-and-panel-data) (handling and analysing panel data)
+-   [Denomination](https://bluefoxr.github.io/COINr/articles/denomination.html)
+-   [Screening units](https://bluefoxr.github.io/COINr/articles/screening.html) based on missing data
+-   [Reweighting](https://bluefoxr.github.io/COINr/articles/weights.html) e.g. using PCA, weight optimisation
 
-... and many other things. 
+... and many other things.
 
 Overall we have demonstrated here how a composite indicator can be built from start to finish (excluding qualitative tasks like conceptual development, etc) in a fully reproducible way.
